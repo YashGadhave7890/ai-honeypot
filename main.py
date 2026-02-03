@@ -12,10 +12,7 @@ SCAM_KEYWORDS = [
 
 def detect_scam(message: str):
     score = sum(word in message.lower() for word in SCAM_KEYWORDS)
-    return {
-        "is_scam": score > 0,
-        "confidence": min(0.6 + score * 0.1, 0.99)
-    }
+    return score > 0, min(0.6 + score * 0.1, 0.99)
 
 def generate_agent_reply():
     replies = [
@@ -54,24 +51,31 @@ async def honeypot(request: Request, x_api_key: str = Header(None)):
     if not isinstance(history, list):
         history = []
 
-    detection = detect_scam(message)
+    is_scam, confidence = detect_scam(message)
 
-    if detection["is_scam"]:
+    if is_scam:
         reply = generate_agent_reply()
         intel = extract_intel(message)
         agent_active = True
     else:
         reply = "Okay, thank you for the information."
-        intel = {}
         agent_active = False
+        intel = {
+            "bank_accounts": [],
+            "upi_ids": [],
+            "phone_numbers": [],
+            "emails": [],
+            "phishing_links": [],
+            "payment_instructions": []
+        }
 
     return {
-        "is_scam": detection["is_scam"],
-        "confidence": detection["confidence"],
-        "agent_activated": agent_active,
-        "reply_message": reply,
+        "is_scam": bool(is_scam),
+        "confidence": float(confidence),
+        "agent_activated": bool(agent_active),
+        "reply_message": str(reply),
         "engagement_metrics": {
-            "turn_count": len(history) + 1,
+            "turn_count": int(len(history) + 1),
             "response_time_ms": int((time.time() - start) * 1000)
         },
         "extracted_intelligence": intel
