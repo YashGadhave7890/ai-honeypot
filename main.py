@@ -1,18 +1,9 @@
-from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel
-from typing import Optional, List, Dict
+from fastapi import FastAPI, Header, HTTPException, Request
 import os, re, time
 
 app = FastAPI()
 API_KEY = os.getenv("API_KEY", "changeme")
 
-# -------- Request Model (Flexible to avoid 422 errors) --------
-class MessageRequest(BaseModel):
-    conversation_id: Optional[str] = "default"
-    message: Optional[str] = ""
-    history: Optional[List[Dict]] = []
-
-# -------- Scam Detection --------
 SCAM_KEYWORDS = [
     "otp", "urgent", "account blocked", "verify now", "kyc",
     "suspend", "click link", "send money", "upi", "refund",
@@ -26,7 +17,6 @@ def detect_scam(message: str):
         "confidence": min(0.6 + score * 0.1, 0.99)
     }
 
-# -------- Agent Reply Generator --------
 def generate_agent_reply():
     replies = [
         "Okay… I’m not very good with banking. What should I do first?",
@@ -37,7 +27,6 @@ def generate_agent_reply():
     ]
     return replies[int(time.time()) % len(replies)]
 
-# -------- Intelligence Extraction --------
 def extract_intel(text: str):
     return {
         "bank_accounts": re.findall(r'\b\d{9,18}\b', text),
@@ -48,16 +37,22 @@ def extract_intel(text: str):
         "payment_instructions": re.findall(r'(send|transfer|pay).{0,40}', text, re.I)
     }
 
-# -------- Honeypot Endpoint --------
 @app.post("/honeypot")
-def honeypot(req: MessageRequest, x_api_key: str = Header(...)):
+async def honeypot(request: Request, x_api_key: str = Header(None)):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
     start = time.time()
 
-    message = req.message or ""
-    history = req.history or []
+    try:
+        body = await request.json()
+    except:
+        body = {}
+
+    message = str(body.get("message", ""))
+    history = body.get("history", [])
+    if not isinstance(history, list):
+        history = []
 
     detection = detect_scam(message)
 
