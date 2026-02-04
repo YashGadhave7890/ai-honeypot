@@ -1,82 +1,50 @@
 from fastapi import FastAPI, Header, HTTPException, Request
-import os, re, time
+import os, time
 
 app = FastAPI()
 API_KEY = os.getenv("API_KEY", "changeme")
 
 SCAM_KEYWORDS = [
-    "otp", "urgent", "account blocked", "verify now", "kyc",
-    "suspend", "click link", "send money", "upi", "refund",
-    "prize", "lottery", "reward"
+    "otp", "urgent", "account blocked", "verify", "kyc",
+    "suspend", "click", "send money", "upi", "refund",
+    "prize", "lottery"
 ]
 
-def detect_scam(message: str):
-    score = sum(word in message.lower() for word in SCAM_KEYWORDS)
-    return score > 0, min(0.6 + score * 0.1, 0.99)
+def detect_scam(text: str) -> bool:
+    return any(word in text.lower() for word in SCAM_KEYWORDS)
 
-def generate_agent_reply():
+def generate_reply(history_len: int) -> str:
     replies = [
-        "Okay… I’m not very good with banking. What should I do first?",
-        "Can you send the details again?",
-        "Where exactly do I send the money?",
-        "Is this your official company account?",
-        "Sorry I didn’t understand… can you explain slowly?"
+        "Why is my account being suspended?",
+        "I didn’t do anything wrong. What happened?",
+        "Can you explain what I need to do?",
+        "Is this from my bank officially?",
+        "I am confused, please guide me."
     ]
-    return replies[int(time.time()) % len(replies)]
-
-def extract_intel(text: str):
-    return {
-        "bank_accounts": re.findall(r'\b\d{9,18}\b', text),
-        "upi_ids": re.findall(r'\b[\w.-]+@[\w.-]+\b', text),
-        "phone_numbers": re.findall(r'\b\d{10}\b', text),
-        "emails": re.findall(r'\b[\w\.-]+@[\w\.-]+\.\w+\b', text),
-        "phishing_links": re.findall(r'https?://\S+', text),
-        "payment_instructions": re.findall(r'(send|transfer|pay).{0,40}', text, re.I)
-    }
+    return replies[history_len % len(replies)]
 
 @app.post("/honeypot")
 async def honeypot(request: Request, x_api_key: str = Header(None)):
     if x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API Key")
 
-    start = time.time()
-
     try:
         body = await request.json()
     except:
         body = {}
 
-    message = str(body.get("message", ""))
-    history = body.get("history", [])
-    if not isinstance(history, list):
-        history = []
+    message_obj = body.get("message", {})
+    message_text = message_obj.get("text", "")
+    history = body.get("conversationHistory", [])
 
-    is_scam, confidence = detect_scam(message)
+    is_scam = detect_scam(message_text)
 
     if is_scam:
-        reply = generate_agent_reply()
-        intel = extract_intel(message)
-        agent_active = True
+        reply = generate_reply(len(history))
     else:
         reply = "Okay, thank you for the information."
-        agent_active = False
-        intel = {
-            "bank_accounts": [],
-            "upi_ids": [],
-            "phone_numbers": [],
-            "emails": [],
-            "phishing_links": [],
-            "payment_instructions": []
-        }
 
     return {
-        "is_scam": bool(is_scam),
-        "confidence": float(confidence),
-        "agent_activated": bool(agent_active),
-        "reply_message": str(reply),
-        "engagement_metrics": {
-            "turn_count": int(len(history) + 1),
-            "response_time_ms": int((time.time() - start) * 1000)
-        },
-        "extracted_intelligence": intel
+        "status": "success",
+        "reply": reply
     }
